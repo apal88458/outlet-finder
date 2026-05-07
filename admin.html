@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Live Tracking</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>body{margin:0} #map{height:100vh;width:100%} .pass-label{background:#d93025;color:white;padding:2px 5px;border-radius:4px;font-weight:bold;font-size:12px;}</style>
+</head>
+<body>
+    <div id="map"></div>
+<script>
+    const API = "https://script.google.com/macros/s/AKfycbxTiAXI4kCsu4ZZafbBUyl2q_8AWIpvD0lmYHHvB4SBBjK-p9gq7o9E6_ObnQkFdvN2/exec";
+    var map = L.map('map').setView([20.59, 78.96], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    var markers = {};
+
+    async function loadData() {
+        try {
+            const res = await fetch(API + "?action=getAdminData");
+            const data = await res.json();
+            const latest = {};
+            data.locations.forEach((r, i) => { 
+                if(i > 0 && r[0] && r[0].toString().toLowerCase() !== "null") latest[r[0]] = {lat: r[1], lng: r[2], time: r[3]};
+            });
+            for(let id in latest) {
+                let emp = data.employees.find(e => e[0].toString().trim() === id.toString().trim());
+                let pass = emp ? emp[1] : "N/A";
+                let content = `<b>ID:</b> ${id}<br><b>Pass:</b> ${pass}<hr><small>Update: ${new Date(latest[id].time).toLocaleTimeString()}</small>`;
+                if(markers[id]) {
+                    markers[id].setLatLng([latest[id].lat, latest[id].lng]);
+                    markers[id].setPopupContent(content);
+                } else {
+                    markers[id] = L.marker([latest[id].lat, latest[id].lng]).addTo(map).bindTooltip("P: "+pass, {permanent:true, direction:'top', className:'pass-label'}).bindPopup(content);
+                }
+            }
+        } catch(e) { console.log("Refresh failed", e); }
+    }
+    loadData(); setInterval(loadData, 30000);
+</script>
+</body>
+</html>
