@@ -12,10 +12,12 @@
     button{padding:12px 15px; cursor:pointer; background:#1a73e8; color:white; border:none; border-radius:5px; width:100%; margin-bottom:10px; font-weight:bold}
     #mapBtn{background:#34a853} #routeBtn{background:#fbbc05; color:black}
     ul{list-style:none; padding:0}
-    li{margin-bottom:15px; padding:12px; border:1px solid #eee; border-radius:6px; background:#fff}
+    li{margin-bottom:15px; padding:12px; border:1px solid #eee; border-radius:6px; background:#fff; position: relative; display: flex; justify-content: space-between; align-items: center;}
     .name{font-weight:bold; color:#1a73e8}
+    .remove-btn{background: #ff4d4d; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-weight: bold; font-size: 14px; line-height: 1; margin-left: 10px;}
     #map{height:300px; margin-top:15px; border-radius:8px; display:none}
     #status{background:#d4edda; color:#155724; padding:10px; border-radius:5px; margin-bottom:10px; font-size:14px; text-align:center}
+    .content-area { flex-grow: 1; }
 </style>
 </head>
 <body>
@@ -42,14 +44,11 @@ const SHEET_ID = "1u7RN-0d34sy01gXlJjc16C-ZTOdsQPj94X9NXSWabqo";
 const urlParams = new URLSearchParams(window.location.search);
 const empId = urlParams.get("id");
 
-// --- INITIALIZATION ---
 if(!empId || empId === "null") {
     alert("Session Error! Please login again.");
     window.location.href = "index.html";
 } else {
     document.getElementById("uid").innerText = empId;
-    
-    // Background tracking for Admin (with CORS fix)
     setInterval(() => {
         navigator.geolocation.getCurrentPosition(pos => {
             fetch(`${API}?id=${encodeURIComponent(empId)}&lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`, { mode: 'no-cors' });
@@ -57,7 +56,6 @@ if(!empId || empId === "null") {
     }, 15000);
 }
 
-// --- ENTER KEY LOGIC ---
 document.getElementById("ids").addEventListener("keypress", function(event) {
     if (event.key === "Enter") {
         event.preventDefault();
@@ -67,7 +65,14 @@ document.getElementById("ids").addEventListener("keypress", function(event) {
 
 let outletsData = [], map;
 
-// --- MAIN FIND FUNCTION ---
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 async function findOutlets() {
     const rawIds = document.getElementById("ids").value;
     if (!rawIds) return alert("Bhai, IDs toh dalo!");
@@ -77,55 +82,56 @@ async function findOutlets() {
     btn.innerText = "Searching... Wait";
     btn.disabled = true;
 
-    // STEP 1: Get GPS First (Mandatory for Mobile)
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const userLat = pos.coords.latitude;
         const userLon = pos.coords.longitude;
 
         try {
-            // STEP 2: Fetch Data
             const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
             const data = await res.json();
 
-            const filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
+            let filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
             if (!filtered.length) {
                 alert("Koi data nahi mila!");
                 resetBtn();
                 return;
             }
 
-            // Distance Formula
-            function getDistance(lat1, lon1, lat2, lon2) {
-                const R = 6371;
-                const dLat = (lat2 - lat1) * Math.PI / 180;
-                const dLon = (lon2 - lon1) * Math.PI / 180;
-                const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
-                return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            }
-
-            outletsData = filtered.map(o => ({
+            // --- NEAREST NEIGHBOR SORTING LOGIC ---
+            let sorted = [];
+            let currentLat = userLat;
+            let currentLon = userLon;
+            let pool = filtered.map(o => ({
+                id: o["Outlet Id"],
                 name: o["Outlet Name"],
                 address: o["Address"],
                 lat: parseFloat(o.Latitude),
                 lng: parseFloat(o.Longitude),
-                link: o["Location"],
-                dist: getDistance(userLat, userLon, parseFloat(o.Latitude), parseFloat(o.Longitude))
+                link: o["Location"]
             }));
 
-            // Rendering List
-            const ul = document.getElementById("result");
-            ul.innerHTML = "";
-            outletsData.forEach(r => {
-                const li = document.createElement("li");
-                li.innerHTML = `
-                    <div class="name">${r.name}</div>
-                    <div style="font-size:13px">${r.address || ""}</div>
-                    <div style="margin:5px 0"><b>Distance: ${r.dist.toFixed(2)} km</b></div>
-                    <a href="${r.link}" target="_blank" style="color:green; font-weight:bold; text-decoration:none">📍 Open Location</a>
-                `;
-                ul.appendChild(li);
-            });
+            while (pool.length > 0) {
+                let closestIdx = 0;
+                let minDist = Infinity;
 
+                for (let i = 0; i < pool.length; i++) {
+                    let d = getDistance(currentLat, currentLon, pool[i].lat, pool[i].lng);
+                    if (d < minDist) {
+                        minDist = d;
+                        closestIdx = i;
+                    }
+                }
+
+                let chosen = pool.splice(closestIdx, 1)[0];
+                chosen.dist = minDist; // Distance from previous point
+                sorted.push(chosen);
+                currentLat = chosen.lat;
+                currentLon = chosen.lng;
+            }
+
+            outletsData = sorted;
+            renderList();
+            
             document.getElementById("mapBtn").style.display = "block";
             document.getElementById("routeBtn").style.display = "block";
             resetBtn();
@@ -136,9 +142,32 @@ async function findOutlets() {
         }
 
     }, (err) => {
-        alert("GPS Error: " + err.message + ". Please allow location access.");
+        alert("GPS Error: " + err.message);
         resetBtn();
     }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+function renderList() {
+    const ul = document.getElementById("result");
+    ul.innerHTML = "";
+    outletsData.forEach((r, index) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+            <div class="content-area">
+                <div class="name">${r.name}</div>
+                <div style="font-size:13px">${r.address || ""}</div>
+                <div style="margin:5px 0"><b>Dist: ${r.dist.toFixed(2)} km</b></div>
+                <a href="${r.link}" target="_blank" style="color:green; font-weight:bold; text-decoration:none">📍 Open Location</a>
+            </div>
+            <button class="remove-btn" onclick="removeItem(${index})">×</button>
+        `;
+        ul.appendChild(li);
+    });
+}
+
+function removeItem(index) {
+    outletsData.splice(index, 1);
+    renderList();
 }
 
 function resetBtn() {
@@ -155,6 +184,9 @@ function showAllOnMap() {
             map = L.map('map').setView([lat, lng], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
+        map.eachLayer((layer) => { if (!!layer.toGeoJSON) { map.removeLayer(layer); } });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        
         L.marker([lat, lng]).addTo(map).bindPopup("Aap Yahan Ho").openPopup();
         outletsData.forEach(o => {
             if(o.lat && o.lng) L.marker([o.lat, o.lng]).addTo(map).bindTooltip(o.name, {permanent:true});
