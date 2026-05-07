@@ -53,28 +53,33 @@ let outletsData=[], map;
 
 async function findOutlets() {
     const rawIds = document.getElementById("ids").value;
-    if(!rawIds) return alert("Please enter Outlet IDs");
-    
-    const ids = rawIds.split(/[\s,]+/).map(x=>x.trim()).filter(x=>x!=="");
+    if (!rawIds) return alert("Enter IDs");
 
-    // MOBILE FIX: Pehle GPS call, phir data fetch
+    const ids = rawIds.split(/[\s,]+/).map(x => x.trim()).filter(x => x);
+
+    // STEP 1: Force GPS first (mobile safe)
     navigator.geolocation.getCurrentPosition(async (pos) => {
+
         const userLat = pos.coords.latitude;
         const userLon = pos.coords.longitude;
 
         try {
+            // STEP 2: Fetch after GPS ready
             const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
             const data = await res.json();
+
             const filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
+            if (!filtered.length) return alert("No data found");
 
-            if(!filtered.length) return alert("No matching IDs found in Sheet");
-
-            function getDistance(lat1,lon1,lat2,lon2){
-                const R=6371; 
-                const dLat=(lat2-lat1)*Math.PI/180;
-                const dLon=(lon2-lon1)*Math.PI/180;
-                const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-                return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+            function getDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371;
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat/2)**2 +
+                    Math.cos(lat1*Math.PI/180) *
+                    Math.cos(lat2*Math.PI/180) *
+                    Math.sin(dLon/2)**2;
+                return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
             }
 
             outletsData = filtered.map(o => ({
@@ -83,22 +88,38 @@ async function findOutlets() {
                 lat: parseFloat(o.Latitude),
                 lng: parseFloat(o.Longitude),
                 link: o["Location"],
-                dist: getDistance(userLat, userLon, parseFloat(o.Latitude), parseFloat(o.Longitude))
+                dist: getDistance(userLat, userLon, o.Latitude, o.Longitude)
             }));
 
+            // UI render
             const ul = document.getElementById("result");
             ul.innerHTML = "";
+
             outletsData.forEach(r => {
                 const li = document.createElement("li");
-                li.innerHTML = `<div class="name">${r.name}</div><div>${r.address||""}</div><div><b>Distance:</b> ${r.dist.toFixed(2)} km</div><a href="${r.link}" target="_blank">Google Maps Link</a>`;
+                li.innerHTML = `
+                    <div class="name">${r.name}</div>
+                    <div>${r.address || ""}</div>
+                    <div><b>${r.dist.toFixed(2)} km</b></div>
+                    <a href="${r.link}" target="_blank">Open</a>
+                `;
                 ul.appendChild(li);
             });
 
-            document.getElementById("mapBtn").style.display="block";
-            document.getElementById("routeBtn").style.display="block";
-            
-        } catch(e) { alert("Error loading sheet data: " + e.message); }
-    }, (err) => alert("Please allow GPS access for mobile to work!"), {enableHighAccuracy:true});
+            document.getElementById("mapBtn").style.display = "block";
+            document.getElementById("routeBtn").style.display = "block";
+
+        } catch (e) {
+            alert("Network Error / Sheet issue");
+        }
+
+    }, (err) => {
+        alert("GPS permission allow karo (mobile pe mandatory)");
+    }, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+    });
 }
 
 function showAllOnMap() {
