@@ -1,84 +1,105 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Outlet Finder</title>
+<title>Outlet Finder - Final</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <style>
-    body{font-family:Arial; margin:15px; background:#f9f9f9}
+    body{font-family:Arial, sans-serif; margin:15px; background:#f9f9f9}
     .box{background:white; padding:15px; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-    input{padding:12px; width:100%; margin-bottom:10px; border:1px solid #ddd; border-radius:5px; box-sizing:border-box}
+    input{padding:12px; width:100%; margin-bottom:10px; border:1px solid #ddd; border-radius:5px; box-sizing:border-box; font-size:16px}
     button{padding:12px 15px; cursor:pointer; background:#1a73e8; color:white; border:none; border-radius:5px; width:100%; margin-bottom:10px; font-weight:bold}
     #mapBtn{background:#34a853} #routeBtn{background:#fbbc05; color:black}
     ul{list-style:none; padding:0}
     li{margin-bottom:15px; padding:12px; border:1px solid #eee; border-radius:6px; background:#fff}
     .name{font-weight:bold; color:#1a73e8}
     #map{height:300px; margin-top:15px; border-radius:8px; display:none}
-    #status{background:#d4edda; color:#155724; padding:10px; border-radius:5px; margin-bottom:10px; font-size:14px}
+    #status{background:#d4edda; color:#155724; padding:10px; border-radius:5px; margin-bottom:10px; font-size:14px; text-align:center}
 </style>
 </head>
 <body>
+
 <div id="status">📡 Tracking Active (ID: <span id="uid"></span>)</div>
+
 <div class="box">
     <h2>Find Outlets</h2>
-    <input type="text" id="ids" placeholder="Enter Outlet IDs (e.g. 101, 102)">
-    <button onclick="findOutlets()">Find & Track</button>
+    <input type="text" id="ids" placeholder="Enter Outlet IDs then press Enter">
+    
+    <button id="findBtn" onclick="findOutlets()">Find & Track (or Press Enter)</button>
     <button id="mapBtn" style="display:none" onclick="showAllOnMap()">Show All on Map</button>
     <button id="routeBtn" style="display:none" onclick="openFullRoute()">Start Full Route</button>
+    
     <ul id="result"></ul>
     <div id="map"></div>
 </div>
 
 <script>
+// --- CONFIGURATION ---
 const API = "https://script.google.com/macros/s/AKfycbxTiAXI4kCsu4ZZafbBUyl2q_8AWIpvD0lmYHHvB4SBBjK-p9gq7o9E6_ObnQkFdvN2/exec";
-const SHEET_ID="1u7RN-0d34sy01gXlJjc16C-ZTOdsQPj94X9NXSWabqo";
+const SHEET_ID = "1u7RN-0d34sy01gXlJjc16C-ZTOdsQPj94X9NXSWabqo";
+
 const urlParams = new URLSearchParams(window.location.search);
 const empId = urlParams.get("id");
 
+// --- INITIALIZATION ---
 if(!empId || empId === "null") {
     alert("Session Error! Please login again.");
     window.location.href = "index.html";
 } else {
     document.getElementById("uid").innerText = empId;
-    // Real-time tracking
+    
+    // Background tracking for Admin (with CORS fix)
     setInterval(() => {
         navigator.geolocation.getCurrentPosition(pos => {
-            fetch(`${API}?id=${encodeURIComponent(empId)}&lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
+            fetch(`${API}?id=${encodeURIComponent(empId)}&lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`, { mode: 'no-cors' });
         }, null, {enableHighAccuracy:true});
     }, 15000);
 }
 
-let outletsData=[], map;
+// --- ENTER KEY LOGIC ---
+document.getElementById("ids").addEventListener("keypress", function(event) {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        findOutlets();
+    }
+});
 
+let outletsData = [], map;
+
+// --- MAIN FIND FUNCTION ---
 async function findOutlets() {
     const rawIds = document.getElementById("ids").value;
-    if (!rawIds) return alert("Enter IDs");
+    if (!rawIds) return alert("Bhai, IDs toh dalo!");
 
     const ids = rawIds.split(/[\s,]+/).map(x => x.trim()).filter(x => x);
+    const btn = document.getElementById("findBtn");
+    btn.innerText = "Searching... Wait";
+    btn.disabled = true;
 
-    // STEP 1: Force GPS first (mobile safe)
+    // STEP 1: Get GPS First (Mandatory for Mobile)
     navigator.geolocation.getCurrentPosition(async (pos) => {
-
         const userLat = pos.coords.latitude;
         const userLon = pos.coords.longitude;
 
         try {
-            // STEP 2: Fetch after GPS ready
+            // STEP 2: Fetch Data
             const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
             const data = await res.json();
 
             const filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
-            if (!filtered.length) return alert("No data found");
+            if (!filtered.length) {
+                alert("Koi data nahi mila!");
+                resetBtn();
+                return;
+            }
 
+            // Distance Formula
             function getDistance(lat1, lon1, lat2, lon2) {
                 const R = 6371;
                 const dLat = (lat2 - lat1) * Math.PI / 180;
                 const dLon = (lon2 - lon1) * Math.PI / 180;
-                const a = Math.sin(dLat/2)**2 +
-                    Math.cos(lat1*Math.PI/180) *
-                    Math.cos(lat2*Math.PI/180) *
-                    Math.sin(dLon/2)**2;
+                const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
                 return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
             }
 
@@ -88,38 +109,42 @@ async function findOutlets() {
                 lat: parseFloat(o.Latitude),
                 lng: parseFloat(o.Longitude),
                 link: o["Location"],
-                dist: getDistance(userLat, userLon, o.Latitude, o.Longitude)
+                dist: getDistance(userLat, userLon, parseFloat(o.Latitude), parseFloat(o.Longitude))
             }));
 
-            // UI render
+            // Rendering List
             const ul = document.getElementById("result");
             ul.innerHTML = "";
-
             outletsData.forEach(r => {
                 const li = document.createElement("li");
                 li.innerHTML = `
                     <div class="name">${r.name}</div>
-                    <div>${r.address || ""}</div>
-                    <div><b>${r.dist.toFixed(2)} km</b></div>
-                    <a href="${r.link}" target="_blank">Open</a>
+                    <div style="font-size:13px">${r.address || ""}</div>
+                    <div style="margin:5px 0"><b>Distance: ${r.dist.toFixed(2)} km</b></div>
+                    <a href="${r.link}" target="_blank" style="color:green; font-weight:bold; text-decoration:none">📍 Open Location</a>
                 `;
                 ul.appendChild(li);
             });
 
             document.getElementById("mapBtn").style.display = "block";
             document.getElementById("routeBtn").style.display = "block";
+            resetBtn();
 
         } catch (e) {
-            alert("Network Error / Sheet issue");
+            alert("Network Error!");
+            resetBtn();
         }
 
     }, (err) => {
-        alert("GPS permission allow karo (mobile pe mandatory)");
-    }, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-    });
+        alert("GPS Error: " + err.message + ". Please allow location access.");
+        resetBtn();
+    }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+function resetBtn() {
+    const btn = document.getElementById("findBtn");
+    btn.innerText = "Find & Track (or Press Enter)";
+    btn.disabled = false;
 }
 
 function showAllOnMap() {
@@ -130,10 +155,11 @@ function showAllOnMap() {
             map = L.map('map').setView([lat, lng], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
-        L.marker([lat, lng]).addTo(map).bindPopup("Current Location").openPopup();
+        L.marker([lat, lng]).addTo(map).bindPopup("Aap Yahan Ho").openPopup();
         outletsData.forEach(o => {
             if(o.lat && o.lng) L.marker([o.lat, o.lng]).addTo(map).bindTooltip(o.name, {permanent:true});
         });
+        document.getElementById("map").scrollIntoView({behavior: 'smooth'});
     });
 }
 
