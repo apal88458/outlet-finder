@@ -4,38 +4,120 @@
     <title>Admin Live Tracking</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <style>body{margin:0} #map{height:100vh;width:100%} .pass-label{background:#d93025;color:white;padding:2px 5px;border-radius:4px;font-weight:bold;font-size:12px;}</style>
-</head>
-<body>
-    <div id="map"></div>
-<script>
-    const API = "https://script.google.com/macros/s/AKfycbxTiAXI4kCsu4ZZafbBUyl2q_8AWIpvD0lmYHHvB4SBBjK-p9gq7o9E6_ObnQkFdvN2/exec";
-    var map = L.map('map').setView([20.59, 78.96], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-    var markers = {};
 
-    async function loadData() {
-        try {
-            const res = await fetch(API + "?action=getAdminData");
-            const data = await res.json();
-            const latest = {};
-            data.locations.forEach((r, i) => { 
-                if(i > 0 && r[0] && r[0].toString().toLowerCase() !== "null") latest[r[0]] = {lat: r[1], lng: r[2], time: r[3]};
-            });
-            for(let id in latest) {
-                let emp = data.employees.find(e => e[0].toString().trim() === id.toString().trim());
-                let pass = emp ? emp[1] : "N/A";
-                let content = `<b>ID:</b> ${id}<br><b>Pass:</b> ${pass}<hr><small>Update: ${new Date(latest[id].time).toLocaleTimeString()}</small>`;
-                if(markers[id]) {
-                    markers[id].setLatLng([latest[id].lat, latest[id].lng]);
-                    markers[id].setPopupContent(content);
-                } else {
-                    markers[id] = L.marker([latest[id].lat, latest[id].lng]).addTo(map).bindTooltip("P: "+pass, {permanent:true, direction:'top', className:'pass-label'}).bindPopup(content);
-                }
-            }
-        } catch(e) { console.log("Refresh failed", e); }
-    }
-    loadData(); setInterval(loadData, 30000);
+<style>
+body{margin:0}
+#map{height:100vh;width:100%}
+
+.pass-label{
+background:#d93025;color:white;padding:2px 5px;border-radius:4px;font-weight:bold;font-size:12px;
+}
+
+/* ✅ ADDED UI */
+#panel{
+position:fixed;top:10px;left:10px;z-index:999;background:white;padding:10px;border-radius:8px;
+box-shadow:0 2px 10px rgba(0,0,0,0.2)
+}
+button{padding:6px 10px;margin:3px;cursor:pointer}
+</style>
+</head>
+
+<body>
+
+<!-- ✅ CONTROL PANEL ADDED -->
+<div id="panel">
+    <button onclick="toggleTracking()" id="toggleBtn">⏸ Pause</button>
+    <br>
+    <label>Time History:</label><br>
+    <input type="range" id="timeSlider" min="0" max="23" value="23" oninput="filterByTime(this.value)">
+</div>
+
+<div id="map"></div>
+
+<script>
+
+const API = "https://script.google.com/macros/s/AKfycbxTiAXI4kCsu4ZZafbBUyl2q_8AWIpvD0lmYHHvB4SBBjK-p9gq7o9E6_ObnQkFdvN2/exec";
+
+var map = L.map('map').setView([20.59, 78.96], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+var markers = {};
+let tracking = true;   // ✅ NEW
+
+function toggleTracking(){
+tracking = !tracking;
+document.getElementById("toggleBtn").innerText = tracking ? "⏸ Pause" : "▶ Resume";
+}
+
+// store full history
+let historyData = {};
+
+// ================= EXISTING FUNCTION (UNCHANGED) =================
+async function loadData() {
+
+if(!tracking) return;   // ✅ PAUSE CONTROL
+
+try {
+const res = await fetch(API + "?action=getAdminData");
+const data = await res.json();
+
+const latest = {};
+
+data.locations.forEach((r, i) => { 
+if(i > 0 && r[0] && r[0].toString().toLowerCase() !== "null"){
+latest[r[0]] = {lat: r[1], lng: r[2], time: r[3]};
+
+// store history
+if(!historyData[r[0]]) historyData[r[0]] = [];
+historyData[r[0]].push({lat:r[1], lng:r[2], time:r[3]});
+}
+});
+
+for(let id in latest) {
+
+let emp = data.employees.find(e => e[0].toString().trim() === id.toString().trim());
+let pass = emp ? emp[1] : "N/A";
+
+let content = `<b>ID:</b> ${id}<br><b>Pass:</b> ${pass}<hr><small>Update: ${new Date(latest[id].time).toLocaleTimeString()}</small>`;
+
+if(markers[id]) {
+markers[id].setLatLng([latest[id].lat, latest[id].lng]);
+markers[id].setPopupContent(content);
+} else {
+markers[id] = L.marker([latest[id].lat, latest[id].lng])
+.addTo(map)
+.bindTooltip("P: "+pass, {permanent:true, direction:'top', className:'pass-label'})
+.bindPopup(content);
+}
+}
+
+} catch(e) { console.log("Refresh failed", e); }
+}
+
+// ================= TIME FILTER (NEW FEATURE) =================
+function filterByTime(hour){
+
+for(let id in historyData){
+
+let data = historyData[id].filter(p=>{
+let h = new Date(p.time).getHours();
+return h == hour;
+});
+
+if(data.length){
+
+let last = data[data.length-1];
+
+if(markers[id]){
+markers[id].setLatLng([last.lat,last.lng]);
+}
+}
+}
+}
+
+loadData();
+setInterval(loadData, 30000);
+
 </script>
 </body>
 </html>
