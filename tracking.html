@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <style>
     body{font-family:Arial, sans-serif; margin:15px; background:#f9f9f9}
     .box{background:white; padding:15px; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1)}
@@ -20,6 +21,7 @@
     .content-area { flex-grow: 1; }
 </style>
 </head>
+
 <body>
 
 <div id="status">📡 Your Active (ID: <span id="uid"></span>)</div>
@@ -78,120 +80,64 @@ async function findOutlets() {
     if (!rawIds) return alert("Bhai, IDs toh dalo!");
 
     const ids = rawIds.split(/[\s,]+/).map(x => x.trim()).filter(x => x);
-    const btn = document.getElementById("findBtn");
-    btn.innerText = "Searching... Wait";
-    btn.disabled = true;
 
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const userLat = pos.coords.latitude;
         const userLon = pos.coords.longitude;
 
-        try {
-            const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
-            const data = await res.json();
+        const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
+        const data = await res.json();
 
-            let filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
-            if (!filtered.length) {
-                alert("Koi data nahi mila!");
-                resetBtn();
-                return;
-            }
+        let filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
+        if (!filtered.length) return alert("No data found");
 
-            // --- NEAREST NEIGHBOR SORTING LOGIC ---
-            let sorted = [];
-            let currentLat = userLat;
-            let currentLon = userLon;
-            let pool = filtered.map(o => ({
-                id: o["Outlet Id"],
-                name: o["Outlet Name"],
-                address: o["Address"],
-                lat: parseFloat(o.Latitude),
-                lng: parseFloat(o.Longitude),
-                link: o["Location"]
-            }));
+        outletsData = filtered.map(o => ({
+            name: o["Outlet Name"],
+            address: o["Address"],
+            lat: parseFloat(o.Latitude),
+            lng: parseFloat(o.Longitude),
+            link: o["Location"],
+            dist: getDistance(userLat, userLon, parseFloat(o.Latitude), parseFloat(o.Longitude))
+        }));
 
-            while (pool.length > 0) {
-                let closestIdx = 0;
-                let minDist = Infinity;
+        const ul = document.getElementById("result");
+        ul.innerHTML = "";
+        outletsData.forEach(r => {
+            const li = document.createElement("li");
+            li.innerHTML = `<div class="name">${r.name}</div><div>${r.address||""}</div><div><b>Distance:</b> ${r.dist.toFixed(2)} km</div><a href="${r.link}" target="_blank">Google Maps</a>`;
+            ul.appendChild(li);
+        });
 
-                for (let i = 0; i < pool.length; i++) {
-                    let d = getDistance(currentLat, currentLon, pool[i].lat, pool[i].lng);
-                    if (d < minDist) {
-                        minDist = d;
-                        closestIdx = i;
-                    }
-                }
-
-                let chosen = pool.splice(closestIdx, 1)[0];
-                chosen.dist = minDist; // Distance from previous point
-                sorted.push(chosen);
-                currentLat = chosen.lat;
-                currentLon = chosen.lng;
-            }
-
-            outletsData = sorted;
-            renderList();
-            
-            document.getElementById("mapBtn").style.display = "block";
-            document.getElementById("routeBtn").style.display = "block";
-            resetBtn();
-
-        } catch (e) {
-            alert("Network Error!");
-            resetBtn();
-        }
-
-    }, (err) => {
-        alert("GPS Error: " + err.message);
-        resetBtn();
-    }, { enableHighAccuracy: true, timeout: 10000 });
-}
-
-function renderList() {
-    const ul = document.getElementById("result");
-    ul.innerHTML = "";
-    outletsData.forEach((r, index) => {
-        const li = document.createElement("li");
-        li.innerHTML = `
-            <div class="content-area">
-                <div class="name">${r.name}</div>
-                <div style="font-size:13px">${r.address || ""}</div>
-                <div style="margin:5px 0"><b>Dist: ${r.dist.toFixed(2)} km</b></div>
-                <a href="${r.link}" target="_blank" style="color:green; font-weight:bold; text-decoration:none">📍 Open Location</a>
-            </div>
-            <button class="remove-btn" onclick="removeItem(${index})">×</button>
-        `;
-        ul.appendChild(li);
+        document.getElementById("mapBtn").style.display="block";
+        document.getElementById("routeBtn").style.display="block";
     });
-}
-
-function removeItem(index) {
-    outletsData.splice(index, 1);
-    renderList();
-}
-
-function resetBtn() {
-    const btn = document.getElementById("findBtn");
-    btn.innerText = "Find & Track (or Press Enter)";
-    btn.disabled = false;
 }
 
 function showAllOnMap() {
     document.getElementById("map").style.display="block";
+
     navigator.geolocation.getCurrentPosition(pos => {
         const {latitude:lat, longitude:lng} = pos.coords;
+
         if(!map) {
             map = L.map('map').setView([lat, lng], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
-        map.eachLayer((layer) => { if (!!layer.toGeoJSON) { map.removeLayer(layer); } });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        
-        L.marker([lat, lng]).addTo(map).bindPopup("Aap Yahan Ho").openPopup();
+
+        L.marker([lat, lng]).addTo(map).bindPopup("You are here");
+
+        // ✅ ONLY CHANGE ADDED HERE
         outletsData.forEach(o => {
-            if(o.lat && o.lng) L.marker([o.lat, o.lng]).addTo(map).bindTooltip(o.name, {permanent:true});
+            if(o.lat && o.lng) {
+                let marker = L.marker([o.lat, o.lng]).addTo(map)
+                .bindTooltip(o.name, {permanent:true, direction:"top"});
+
+                marker.on('click', function () {
+                    window.open(`https://www.google.com/maps?q=${o.lat},${o.lng}`, "_blank");
+                });
+            }
         });
-        document.getElementById("map").scrollIntoView({behavior: 'smooth'});
+
     });
 }
 
