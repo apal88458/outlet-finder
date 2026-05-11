@@ -33,6 +33,48 @@
             document.getElementById("error").innerText = "Invalid ID or Password";
         }
     }
+    async function login() {
+    const id = document.getElementById("empId").value.trim();
+    const pass = document.getElementById("password").value.trim();
+    const loginBtn = document.querySelector("button"); // Login button ko select kiya
+    const errorMsg = document.getElementById("error");
+
+    if(!id || !pass) {
+        errorMsg.innerText = "Please enter ID and Password";
+        return;
+    }
+
+    // 1. Button ko "Loading" state mein daalein
+    loginBtn.innerText = "Logging in...";
+    loginBtn.disabled = true;
+    loginBtn.style.opacity = "0.7";
+    loginBtn.style.cursor = "not-allowed";
+    errorMsg.innerText = ""; // Purana error saaf karein
+
+    try {
+        const res = await fetch(`${API}?action=login&id=${encodeURIComponent(id)}&pass=${encodeURIComponent(pass)}`);
+        const status = await res.text();
+
+        if (status.trim() === "success") {
+            window.location.href = "tracking.html?id=" + encodeURIComponent(id);
+        } else {
+            errorMsg.innerText = "Invalid ID or Password";
+            // 2. Error aane par button wapas normal karein
+            resetButton(loginBtn);
+        }
+    } catch (err) {
+        errorMsg.innerText = "Connection Error! Check Internet.";
+        resetButton(loginBtn);
+    }
+}
+
+// Button ko wapas normal karne ka chota function
+function resetButton(btn) {
+    btn.innerText = "Login";
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.style.cursor = "pointer";
+}
 </script>
 </body>
 </html>
