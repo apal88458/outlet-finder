@@ -26,6 +26,21 @@
     
     #map{height:300px; margin-top:15px; border-radius:8px; display:none}
     #status{background:#d4edda; color:#155724; padding:10px; border-radius:5px; margin-bottom:10px; font-size:14px; text-align:center}
+/* Purane .maps-link ko isse badal dein */
+.maps-link {
+    display: inline-block; 
+    margin-top: 5px; 
+    color: #32CD32; /* Yahan color red kar diya gaya hai */
+    text-decoration: none; 
+    font-weight: bold;
+}
+
+/* Optional: Jab mouse link par jaye toh thoda dark red dikhe */
+.maps-link:hover {
+    color: #008000;
+    text-decoration: underline;
+}
+
 </style>
 </head>
 
@@ -149,7 +164,7 @@ function renderResults() {
                 <div class="name">${r.name}</div>
                 <div class="address">${r.address||"No Address"}</div>
                 <div class="dist-info"><b>${distLabel}:</b> ${r.distFromPrev.toFixed(2)} km</div>
-                <a class="maps-link" href="${r.link}" target="_blank">Open Location</a>
+                <a class="maps-link" href="${r.link}" target="_blank"> 📍 Open Location</a>
             </div>
             <button class="remove-btn" onclick="removeItem(${index})">×</button>
         `;
@@ -192,6 +207,81 @@ function openFullRoute() {
         let points = [`${pos.coords.latitude},${pos.coords.longitude}`];
         outletsData.forEach(o => points.push(`${o.lat},${o.lng}`));
         window.open("https://www.google.com/maps/dir/" + points.join("/"), "_blank");
+    });
+}
+    async function findOutlets() {
+    const rawIds = document.getElementById("ids").value;
+    const findBtn = document.getElementById("findBtn"); // Button element ko select kiya
+
+    if (!rawIds) return alert("Bhai, IDs toh dalo!");
+
+    // 1. Button ka text badal kar "Searching..." karein aur disable karein
+    findBtn.innerText = "Searching...";
+    findBtn.disabled = true;
+    findBtn.style.opacity = "0.7";
+
+    const ids = rawIds.split(/[\s,]+/).map(x => x.trim()).filter(x => x);
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+            const userLat = pos.coords.latitude;
+            const userLon = pos.coords.longitude;
+
+            const res = await fetch(`https://opensheet.elk.sh/${SHEET_ID}/location`);
+            const data = await res.json();
+
+            let filtered = data.filter(d => ids.includes(String(d["Outlet Id"])));
+            
+            if (!filtered.length) {
+                alert("No data found");
+            } else {
+                // ... (Aapka baki ka sorting logic yahan rahega)
+                let sorted = [];
+                let pool = [...filtered];
+                let currentLat = userLat;
+                let currentLon = userLon;
+
+                while(pool.length > 0) {
+                    let nearestIdx = 0;
+                    let minDist = Infinity;
+                    for(let i=0; i<pool.length; i++) {
+                        let d = getDistance(currentLat, currentLon, parseFloat(pool[i].Latitude), parseFloat(pool[i].Longitude));
+                        if(d < minDist) {
+                            minDist = d;
+                            nearestIdx = i;
+                        }
+                    }
+                    let chosen = pool.splice(nearestIdx, 1)[0];
+                    sorted.push({
+                        name: chosen["Outlet Name"],
+                        address: chosen["Address"],
+                        lat: parseFloat(chosen.Latitude),
+                        lng: parseFloat(chosen.Longitude),
+                        link: chosen["Location"],
+                        distFromPrev: minDist
+                    });
+                    currentLat = sorted[sorted.length-1].lat;
+                    currentLon = sorted[sorted.length-1].lng;
+                }
+
+                outletsData = sorted;
+                renderResults();
+                document.getElementById("mapBtn").style.display="block";
+                document.getElementById("routeBtn").style.display="block";
+            }
+        } catch (error) {
+            alert("Error fetching data!");
+        } finally {
+            // 2. Kaam khatam hone ke baad button ko wapas normal karein
+            findBtn.innerText = "Find & Track (or Press Enter)";
+            findBtn.disabled = false;
+            findBtn.style.opacity = "1";
+        }
+    }, (err) => {
+        alert("Location access denied!");
+        findBtn.innerText = "Find & Track (or Press Enter)";
+        findBtn.disabled = false;
+        findBtn.style.opacity = "1";
     });
 }
 </script>
