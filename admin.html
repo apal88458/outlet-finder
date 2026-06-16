@@ -13,23 +13,33 @@ body{margin:0}
 background:#d93025;color:white;padding:2px 5px;border-radius:4px;font-weight:bold;font-size:12px;
 }
 
-/* ✅ ADDED UI */
+/* ✅ CONTROL PANEL STYLE */
 #panel{
 position:fixed;top:10px;left:10px;z-index:999;background:white;padding:10px;border-radius:8px;
-box-shadow:0 2px 10px rgba(0,0,0,0.2)
+box-shadow:0 2px 10px rgba(0,0,0,0.2); width: 220px;
 }
-button{padding:6px 10px;margin:3px;cursor:pointer}
+button{padding:6px 10px;margin:3px;cursor:pointer; width: 100%; border-radius: 4px; border: 1px solid #ccc; font-weight: bold;}
+button.share-btn { background: #25D366; color: white; border: none; margin-top: 8px; }
+button.share-btn:hover { background: #128C7E; }
 </style>
 </head>
 
 <body>
 
-<!-- ✅ CONTROL PANEL ADDED -->
 <div id="panel">
     <button onclick="toggleTracking()" id="toggleBtn">⏸ Pause</button>
-    <br>
+    <br><br>
     <label>Time History:</label><br>
-    <input type="range" id="timeSlider" min="0" max="23" value="23" oninput="filterByTime(this.value)">
+    <input type="range" id="timeSlider" min="0" max="23" value="23" oninput="filterByTime(this.value)" style="width:100%">
+    
+    <button onclick="shareToWhatsApp()" class="share-btn">📋 Copy & Share WhatsApp</button>
+    
+    <div style="margin-top: 10px;">
+        <label><b>Outlets (Click to Zoom):</b></label>
+        <div id="outletList" style="max-height: 180px; overflow-y: auto; border: 1px solid #ddd; padding: 5px; margin-top: 5px; font-size: 13px; background: #fdfdfd; border-radius: 4px;">
+            Waiting for data...
+        </div>
+    </div>
 </div>
 
 <div id="map"></div>
@@ -42,7 +52,7 @@ var map = L.map('map').setView([20.59, 78.96], 5);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 var markers = {};
-let tracking = true;   // ✅ NEW
+let tracking = true;   
 
 function toggleTracking(){
 tracking = !tracking;
@@ -52,10 +62,10 @@ document.getElementById("toggleBtn").innerText = tracking ? "⏸ Pause" : "▶ R
 // store full history
 let historyData = {};
 
-// ================= EXISTING FUNCTION (UNCHANGED) =================
+// ================= EXISTING FUNCTION =================
 async function loadData() {
 
-if(!tracking) return;   // ✅ PAUSE CONTROL
+if(!tracking) return;   
 
 try {
 const res = await fetch(API + "?action=getAdminData");
@@ -91,10 +101,13 @@ markers[id] = L.marker([latest[id].lat, latest[id].lng])
 }
 }
 
+// Data load hone ke baad outlet list automatically update ho jayegi
+updateOutletList();
+
 } catch(e) { console.log("Refresh failed", e); }
 }
 
-// ================= TIME FILTER (NEW FEATURE) =================
+// ================= TIME FILTER =================
 function filterByTime(hour){
 
 for(let id in historyData){
@@ -113,6 +126,71 @@ markers[id].setLatLng([last.lat,last.lng]);
 }
 }
 }
+}
+
+// ================= 📍 NEW FEATURE: UPDATE OUTLET LIST & CLICK TO ZOOM =================
+function updateOutletList() {
+    let listDiv = document.getElementById("outletList");
+    if (!listDiv) return;
+    
+    listDiv.innerHTML = ""; 
+    
+    for (let id in markers) {
+        let btn = document.createElement("div");
+        btn.innerHTML = `📍 ID: ${id}`;
+        btn.style.cssText = "cursor:pointer; padding:6px; border-bottom:1px solid #eee; background:#fff; margin-bottom:2px; border-radius:3px; transition: 0.2s;";
+        
+        // Hover effects
+        btn.onmouseover = function() { this.style.background = "#e3f2fd"; this.style.color = "#1565c0"; }
+        btn.onmouseout = function() { this.style.background = "#fff"; this.style.color = "#000"; }
+        
+        // CLICK TO ZOOM & POSITION FOCUS
+        btn.onclick = function() {
+            let markerLatLng = markers[id].getLatLng();
+            map.setView(markerLatLng, 16, { animate: true }); // Zoom level 16 full zoom ke liye
+            markers[id].openPopup(); 
+        };
+        
+        listDiv.appendChild(btn);
+    }
+}
+
+// ================= 💬 NEW FEATURE: COPY DETAILS & WHATSAPP SHARE =================
+function shareToWhatsApp() {
+    let textMessage = "*🚀 Live Tracking Update 🚀*\n\n";
+    let count = 0;
+    
+    for (let id in markers) {
+        count++;
+        let latLng = markers[id].getLatLng();
+        let popupContent = markers[id].getPopupContent() || "";
+        
+        // HTML tags ko clean karke simple text banana WhatsApp ke liye
+        let cleanText = popupContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        // Format layout for WhatsApp text
+        textMessage += `🔹 *ID:* ${id}\n📍 *Map Location:* https://maps.google.com/?q=${latLng.lat},${latLng.lng}\n📝 *Info:* ${cleanText}\n\n`;
+    }
+    
+    if(count === 0) {
+        alert("Abhi screen par koi data ya markers available nahi hain!");
+        return;
+    }
+
+    textMessage += `_Generated at: ${new Date().toLocaleTimeString()}_`;
+
+    // Clipboard par data copy karne ka automated system
+    navigator.clipboard.writeText(textMessage).then(() => {
+        alert("Sabhi outlets ka data copy ho gaya hai! Ab direct WhatsApp khulega, wahan paste kar dein.");
+        
+        // WhatsApp web ya mobile app par direct send text option ke sath navigate karna
+        let whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
+        window.open(whatsappUrl, '_blank');
+    }).catch(err => {
+        // Fallback agar browser security copy block kare to seedha window redirect karega
+        let whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
+        window.open(whatsappUrl, '_blank');
+    });
 }
 
 loadData();
