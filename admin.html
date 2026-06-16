@@ -13,14 +13,16 @@ body{margin:0}
 background:#d93025;color:white;padding:2px 5px;border-radius:4px;font-weight:bold;font-size:12px;
 }
 
-/* ✅ CONTROL PANEL STYLE */
+/* ✅ UI PANEL WITH FIXED WIDTH FOR OUTLET LIST */
 #panel{
-position:fixed;top:10px;left:10px;z-index:999;background:white;padding:10px;border-radius:8px;
-box-shadow:0 2px 10px rgba(0,0,0,0.2); width: 220px;
+position:fixed;top:10px;left:10px;z-index:999;background:white;padding:12px;border-radius:8px;
+box-shadow:0 2px 10px rgba(0,0,0,0.2); width: 240px; font-family: Arial, sans-serif;
 }
-button{padding:6px 10px;margin:3px;cursor:pointer; width: 100%; border-radius: 4px; border: 1px solid #ccc; font-weight: bold;}
-button.share-btn { background: #25D366; color: white; border: none; margin-top: 8px; }
-button.share-btn:hover { background: #128C7E; }
+button{padding:6px 10px;margin:3px 0;cursor:pointer; width: 100%; border-radius: 4px; border: 1px solid #ccc; font-weight: bold;}
+.copy-btn { background: #25D366; color: white; border: none; font-size: 14px; padding: 8px; margin-top: 5px;}
+.copy-btn:hover { background: #128C7E; }
+.outlet-item { cursor: pointer; padding: 6px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 2px; border-radius: 4px; font-size: 12px; }
+.outlet-item:hover { background: #e3f2fd; color: #1565c0; }
 </style>
 </head>
 
@@ -30,13 +32,13 @@ button.share-btn:hover { background: #128C7E; }
     <button onclick="toggleTracking()" id="toggleBtn">⏸ Pause</button>
     <br><br>
     <label>Time History:</label><br>
-    <input type="range" id="timeSlider" min="0" max="23" value="23" oninput="filterByTime(this.value)" style="width:100%">
+    <input type="range" id="timeSlider" min="0" max="23" value="23" oninput="filterByTime(this.value)" style="width: 100%;">
     
-    <button onclick="shareToWhatsApp()" class="share-btn">📋 Copy & Share WhatsApp</button>
+    <button onclick="copyAllDetailsToWhatsApp()" class="copy-btn">📋 Copy All Details</button>
     
-    <div style="margin-top: 10px;">
+    <div style="margin-top: 12px;">
         <label><b>Outlets (Click to Zoom):</b></label>
-        <div id="outletList" style="max-height: 180px; overflow-y: auto; border: 1px solid #ddd; padding: 5px; margin-top: 5px; font-size: 13px; background: #fdfdfd; border-radius: 4px;">
+        <div id="outletList" style="max-height: 160px; overflow-y: auto; border: 1px solid #ddd; padding: 5px; margin-top: 5px; border-radius: 4px;">
             Waiting for data...
         </div>
     </div>
@@ -53,6 +55,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 var markers = {};
 let tracking = true;   
+let globalEmployeeData = []; // To store names/passes for the copy function
 
 function toggleTracking(){
 tracking = !tracking;
@@ -70,6 +73,7 @@ if(!tracking) return;
 try {
 const res = await fetch(API + "?action=getAdminData");
 const data = await res.json();
+globalEmployeeData = data.employees; // Store globally
 
 const latest = {};
 
@@ -101,7 +105,7 @@ markers[id] = L.marker([latest[id].lat, latest[id].lng])
 }
 }
 
-// Data load hone ke baad outlet list automatically update ho jayegi
+// Automatically refresh the outlet selection list
 updateOutletList();
 
 } catch(e) { console.log("Refresh failed", e); }
@@ -128,74 +132,42 @@ markers[id].setLatLng([last.lat,last.lng]);
 }
 }
 
-// ================= 📍 NEW FEATURE: UPDATE OUTLET LIST & CLICK TO ZOOM =================
+// ================= 📍 NEW: OUTLET LIST & CLICK TO ZOOM =================
 function updateOutletList() {
     let listDiv = document.getElementById("outletList");
     if (!listDiv) return;
-    
     listDiv.innerHTML = ""; 
     
     for (let id in markers) {
-        let btn = document.createElement("div");
-        btn.innerHTML = `📍 ID: ${id}`;
-        btn.style.cssText = "cursor:pointer; padding:6px; border-bottom:1px solid #eee; background:#fff; margin-bottom:2px; border-radius:3px; transition: 0.2s;";
+        let emp = globalEmployeeData.find(e => e[0].toString().trim() === id.toString().trim());
+        let passName = emp ? emp[1] : "N/A";
+
+        let item = document.createElement("div");
+        item.className = "outlet-item";
+        item.innerHTML = `🏪 <b>${passName}</b> (ID: ${id})`;
         
-        // Hover effects
-        btn.onmouseover = function() { this.style.background = "#e3f2fd"; this.style.color = "#1565c0"; }
-        btn.onmouseout = function() { this.style.background = "#fff"; this.style.color = "#000"; }
-        
-        // CLICK TO ZOOM & POSITION FOCUS
-        btn.onclick = function() {
+        // CLICK TO ZOOM: Ispe click karte hi map wahan zoom ho jayega
+        item.onclick = function() {
             let markerLatLng = markers[id].getLatLng();
-            map.setView(markerLatLng, 16, { animate: true }); // Zoom level 16 full zoom ke liye
+            map.setView(markerLatLng, 16, { animate: true }); // Level 16 par clear zoom-in hoga
             markers[id].openPopup(); 
         };
         
-        listDiv.appendChild(btn);
+        listDiv.appendChild(item);
     }
 }
 
-// ================= 💬 NEW FEATURE: COPY DETAILS & WHATSAPP SHARE =================
-function shareToWhatsApp() {
-    let textMessage = "*🚀 Live Tracking Update 🚀*\n\n";
+// ================= 📋 NEW: COPY ALL DETAILS WITH MAP LINK FOR WHATSAPP =================
+function copyAllDetailsToWhatsApp() {
+    let textMessage = "*🚀 Live Tracking Outlets Report 🚀*\n\n";
     let count = 0;
     
     for (let id in markers) {
         count++;
         let latLng = markers[id].getLatLng();
-        let popupContent = markers[id].getPopupContent() || "";
+        let emp = globalEmployeeData.find(e => e[0].toString().trim() === id.toString().trim());
+        let passName = emp ? emp[1] : "N/A";
         
-        // HTML tags ko clean karke simple text banana WhatsApp ke liye
-        let cleanText = popupContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        
-        // Format layout for WhatsApp text
-        textMessage += `🔹 *ID:* ${id}\n📍 *Map Location:* https://maps.google.com/?q=${latLng.lat},${latLng.lng}\n📝 *Info:* ${cleanText}\n\n`;
-    }
-    
-    if(count === 0) {
-        alert("Abhi screen par koi data ya markers available nahi hain!");
-        return;
-    }
-
-    textMessage += `_Generated at: ${new Date().toLocaleTimeString()}_`;
-
-    // Clipboard par data copy karne ka automated system
-    navigator.clipboard.writeText(textMessage).then(() => {
-        alert("Sabhi outlets ka data copy ho gaya hai! Ab direct WhatsApp khulega, wahan paste kar dein.");
-        
-        // WhatsApp web ya mobile app par direct send text option ke sath navigate karna
-        let whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
-        window.open(whatsappUrl, '_blank');
-    }).catch(err => {
-        // Fallback agar browser security copy block kare to seedha window redirect karega
-        let whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(textMessage)}`;
-        window.open(whatsappUrl, '_blank');
-    });
-}
-
-loadData();
-setInterval(loadData, 30000);
-
-</script>
-</body>
-</html>
+        // Ekdum clean format WhatsApp ke liye jisme click karne par zoom-in/out map link bhi ho
+        textMessage += `${count}. *${passName}*\n`;
+        textMessage += `🔹 *ID:* ${
